@@ -1,0 +1,178 @@
+{
+  "data_understanding": {
+    "input_requirements": {
+      "schema_fields": ["column_name", "dtype", "semantic_role_optional"],
+      "profile_fields": [
+        "row_count",
+        "missing_per_column",
+        "unique_per_column",
+        "distribution_per_numerical",
+        "correlation_matrix_or_summary",
+        "target_column_optional",
+        "class_imbalance_optional"
+      ]
+    },
+    "column_classification_rules": {
+      "identifier_detection": [
+        "column_name matches /(id|uuid|ssn|passport|account|key)$/i",
+        "uniqueness_ratio >= 0.98 and near-random token pattern",
+        "non-stationary sequential increments"
+      ],
+      "numerical_continuous": "numeric dtype and unique_ratio > 0.05",
+      "numerical_discrete": "integer dtype and unique_count <= 1000",
+      "categorical_low_cardinality": "unique_count <= 20",
+      "categorical_high_cardinality": "unique_count > 20",
+      "ordinal": "explicit ordered categories provided or monotonic rank semantics",
+      "datetime": "parseable datetime dtype"
+    },
+    "relationship_and_quality_checks": {
+      "strong_correlation_threshold": 0.7,
+      "skewness_threshold": 1.0,
+      "outlier_method": "IQR with 1.5*IQR fences and robust z-score (MAD)",
+      "imbalance_threshold": "minority_class_ratio < 0.2",
+      "functional_dependency_tests": [
+        "mutual_information(X, Y)",
+        "conditional entropy H(Y|X)",
+        "group-level variance checks for dependent variables"
+      ]
+    }
+  },
+  "model_selection": {
+    "decision_logic": [
+      {
+        "if": "row_count < 1000",
+        "model": "Gaussian Copula or Vine Copula",
+        "reason": "small sample regime; robust likelihood-based fitting with lower overfitting risk"
+      },
+      {
+        "if": "1000 <= row_count <= 50000",
+        "model": "CTGAN",
+        "reason": "mixed-type tabular modeling with conditional generation for moderate datasets"
+      },
+      {
+        "if": "row_count > 50000 or strong multimodality present",
+        "model": "Tabular Diffusion",
+        "reason": "better mode coverage and complex dependency modeling at scale"
+      }
+    ],
+    "override_policy": {
+      "allowed": true,
+      "requires": [
+        "measured severe mode collapse in GAN validation",
+        "privacy constraints requiring specific framework",
+        "compute constraints incompatible with default choice"
+      ]
+    },
+    "selected_model": "PENDING_INPUT"
+  },
+  "preprocessing": {
+    "exclude_columns": ["all detected identifier columns"],
+    "missing_value_handling": {
+      "numerical": "median imputation; add missingness indicator if missing_rate > 0.05",
+      "categorical": "mode or explicit 'MISSING' token",
+      "datetime": "forward-fill only if temporal continuity is valid, else explicit missing token"
+    },
+    "encoding": {
+      "categorical_low_cardinality": "one-hot encoding for copula baselines; native embeddings for CTGAN/Diffusion pipelines",
+      "categorical_high_cardinality": "frequency encoding for diagnostics + embedding layers in generator"
+    },
+    "scaling": {
+      "default": "standardization",
+      "heavy_tailed_or_bounded": "quantile transform or MinMax for strictly bounded features"
+    },
+    "datetime_strategy": {
+      "extract": ["year", "month", "day", "day_of_week", "is_weekend"],
+      "cyclical_encoding": ["month_sin", "month_cos", "dow_sin", "dow_cos"],
+      "retain_original": false
+    },
+    "train_validation_split": "stratified split if target exists; otherwise random 80/20"
+  },
+  "training_plan": {
+    "architecture": {
+      "ctgan": {
+        "generator_layers": [256, 256],
+        "discriminator_layers": [256, 256],
+        "embedding_dim": 128,
+        "pac": 10
+      },
+      "copula": {
+        "marginals": "auto-select parametric; fallback to KDE",
+        "dependency": "Gaussian/Vine selected by AIC"
+      },
+      "diffusion": {
+        "network": "MLP denoiser with residual blocks",
+        "timesteps": 1000,
+        "beta_schedule": "cosine"
+      }
+    },
+    "hyperparameters": {
+      "epochs": 300,
+      "batch_size": 512,
+      "learning_rate": 0.0002,
+      "weight_decay": 1e-06,
+      "early_stopping_patience": 20
+    },
+    "training_strategy": {
+      "ctgan_conditional_sampling": "inverse-frequency condition sampling to improve minority category coverage",
+      "diffusion_noise_schedule": "cosine with clipped betas for stability",
+      "checkpointing": "save best model by validation distribution score"
+    },
+    "hardware": {
+      "copula": "CPU sufficient",
+      "ctgan": "single GPU recommended; CPU possible for small data",
+      "diffusion": "GPU strongly recommended (>=16GB VRAM preferred)"
+    }
+  },
+  "generation_plan": {
+    "synthetic_sample_count": "set to max(real_row_count, class_balancing_target)",
+    "usage_mode": "augment_or_replace_decided_by_downstream_utility",
+    "class_strategy": {
+      "if_imbalanced": "conditional oversampling to target minority ratio between 0.35 and 0.5 unless domain requires real priors",
+      "if_balanced": "preserve empirical priors"
+    },
+    "constraints": {
+      "range_constraints": "clip to observed valid domain or business-defined hard bounds",
+      "type_constraints": "integer rounding for discrete columns; valid category whitelist enforcement",
+      "relational_constraints": [
+        "non-negative monetary values",
+        "date_end >= date_start",
+        "dependency constraints learned from functional checks"
+      ]
+    },
+    "post_generation_filtering": "reject records violating hard constraints and resample"
+  },
+  "evaluation_plan": {
+    "statistical_similarity": {
+      "numerical": "two-sample KS test per numerical feature (alpha=0.05; report effect sizes)",
+      "categorical": "chi-square test per categorical feature with expected-count safeguards",
+      "distributional_distance": ["Wasserstein distance", "Jensen-Shannon divergence for discretized marginals"]
+    },
+    "dependency_similarity": {
+      "correlation": "compare Pearson/Spearman matrices; report Frobenius norm difference",
+      "pairwise_structure": "compare mutual information matrices"
+    },
+    "ml_utility": {
+      "protocol": "train on synthetic, test on held-out real; compare against train-on-real baseline",
+      "metrics": ["AUROC/F1 for classification", "RMSE/MAE for regression"],
+      "acceptance_band": "synthetic model performance >= 90% of real-data baseline unless domain specifies otherwise"
+    },
+    "privacy_checks": {
+      "nearest_neighbor_distance": "synthetic-to-real distance distribution",
+      "membership_inference": "optional attack simulation for sensitive datasets"
+    }
+  },
+  "reusability": {
+    "save_model": true,
+    "artifacts": {
+      "model": "model.pkl or framework-native checkpoint",
+      "preprocessing": "preprocessor.pkl",
+      "metadata": "schema.json + training_config.json + eval_report.json"
+    },
+    "retrain_triggers": [
+      "schema change (new/dropped columns, dtype changes)",
+      "data drift (PSI > 0.2 or significant KS/Chi-square shift)",
+      "utility degradation below acceptance band"
+    ],
+    "versioning": "semantic versioning with data snapshot hash and model lineage"
+  }
+}
